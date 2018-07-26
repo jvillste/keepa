@@ -1,7 +1,7 @@
 (ns keepa.editor
-  (:import [javax.swing JFrame JTextArea JButton JPanel]
+  (:import [javax.swing JFrame JTextArea JButton JPanel JPasswordField]
            [java.awt BorderLayout FlowLayout]
-           [java.awt.event ActionListener ]))
+           [java.awt.event ActionListener KeyAdapter KeyEvent]))
 
 (defn edit [text on-save]
   (let [j-frame (JFrame. "Editor")
@@ -28,7 +28,24 @@
     (.pack j-frame)
     (.setVisible j-frame true)))
 
+(defn ask-password [handle-password]
+  (let [j-frame (JFrame. "Editor")
+        password-field (JPasswordField.)]
+
+    (.addKeyListener password-field (proxy [KeyAdapter] []
+                                      (keyPressed [event]
+                                        (if (= (.getKeyCode event)
+                                               (KeyEvent/VK_ENTER))
+                                          (do (handle-password (.getText password-field))
+                                              (.dispose j-frame))))))
+
+    (.add j-frame password-field)
+    (.pack j-frame)
+    (.setVisible j-frame true)))
+
 (comment
   (edit "haa"
         (fn [saved] (println saved)))
+
+  (ask-password (fn [password] (println password)))
   )
