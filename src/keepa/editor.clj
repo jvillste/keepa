@@ -1,4 +1,5 @@
 (ns keepa.editor
+  (:require [clojure.core.async :as async])
   (:import [javax.swing JFrame JTextArea JButton JPanel JPasswordField]
            [java.awt BorderLayout FlowLayout]
            [java.awt.event ActionListener KeyAdapter KeyEvent]))
@@ -28,20 +29,22 @@
     (.pack j-frame)
     (.setVisible j-frame true)))
 
-(defn ask-password [handle-password]
+(defn ask-password []
   (let [j-frame (JFrame. "Editor")
-        password-field (JPasswordField.)]
+        password-field (JPasswordField.)
+        channel (async/chan)]
 
     (.addKeyListener password-field (proxy [KeyAdapter] []
                                       (keyPressed [event]
                                         (if (= (.getKeyCode event)
                                                (KeyEvent/VK_ENTER))
-                                          (do (handle-password (.getText password-field))
+                                          (do (async/>!! channel (.getText password-field))
                                               (.dispose j-frame))))))
 
     (.add j-frame password-field)
     (.pack j-frame)
-    (.setVisible j-frame true)))
+    (.setVisible j-frame true)
+    (async/<!! channel)))
 
 (comment
   (edit "haa"
