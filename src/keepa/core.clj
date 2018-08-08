@@ -10,7 +10,7 @@
             [clj-time.format :as format]
             [clojure.math.combinatorics :as combinatorics]
             [keepa.editor :as editor])
-  (:import [org.bouncycastle.openpgp PGPSecretKey]))
+  (:import [org.bouncycastle.openpgp PGPSecretKey PGPSecretKeyRing]))
 
 
 (extend-protocol pgp/Encodable
@@ -38,11 +38,12 @@
 (defn encode [secret-or-public-key]
   (pgp/encode-ascii secret-or-public-key))
 
-(defn decode-secret-key [secret-key-data]
-  (.getSecretKey (first (pgp/decode secret-key-data))))
-
-(defn decode-public-key [public-key-data]
-  (.getPublicKey (first (pgp/decode public-key-data))))
+(defn decode [secret-or-public-key-data]
+  (let [keyring (first (pgp/decode secret-or-public-key-data))]
+    (if (instance? PGPSecretKeyRing
+                   keyring)
+      (.getSecretKey keyring)
+      (.getPublicKey keyring))))
 
 (defn encrypt [message passphrase-or-public-key]
   (message/encrypt
@@ -53,81 +54,112 @@
    :compress :zip
    :armor true))
 
-(defn decrypt-with-passphrase [message passphrase]
+(defn decrypt-with-passphrase [message password]
   (message/decrypt message
-                   passphrase))
+                   password))
 
 (defn decrypt-with-secret-key [message secret-key]
   (message/decrypt message
                    (pgp/unlock-key secret-key
                                    "")))
 
-(defn decrypt-with-keyring [message keyring]
-  (message/decrypt message
-                   (pgp/unlock-key (first (keyring/list-secret-keys (:secret keyring)))
-                                   "")))
-
+(defn decrypt [message password-or-secret-key]
+  (if (string? password-or-secret-key)
+    (decrypt-with-passphrase message password-or-secret-key)
+    (decrypt-with-secret-key message password-or-secret-key)))
 
 (comment
+
+
   (def secret-key (generate-secret-key))
 
-  (pgp/key-info (decode-secret-key (encode-secret-key secret-key)))
-  (pgp/key-info (decode-public-key (encode-public-key secret-key)))
+  (pgp/key-info (decode (encode secret-key)))
+  (pgp/key-info (decode (encode (public-key secret-key))))
 
-  (decrypt-with-secret-key (encrypt "foo" (public-key secret-key))
-                           secret-key)
+  (decrypt (encrypt "foo" (public-key secret-key))
+           secret-key)
 
-  (decrypt-with-passphrase (encrypt "foo" "bar")
-                           "bar"))
+  (decrypt (encrypt "foo" "bar")
+           "bar")
+  )
 
-(defn spit-secret-key [file-name]
-  (->> (generate-secret-key "key")
+(defn spit-secret-key [secret-key-file-name]
+  (->> (generate-secret-key)
        (encode)
-       (spit file-name)))
+       (spit secret-key-file-name)))
+
+(defn spit-public-key [secret-key-file-name public-key-file-name]
+  (->> (slurp secret-key-file-name)
+       (decode-secret-key)
+       (public-key)
+       (encode)
+       (spit public-key-file-name)))
 
 (defn make-directories [path]
   (.mkdirs (io/file path)))
 
-(defn ask-and-check-password [file-name]
+(comment
+  (make-directories "temp/laptop")
+  (spit-secret-key "temp/laptop/local.secret")
+  (spit-public-key "temp/laptop/local.secret"
+                   "temp/laptop/local.public")
+  )
+
+(defn create-password-hash-file [file-name]
+  (spit file-name (scrypt/encrypt (editor/ask-password))))
+
+(defn ask-and-check-password [password-hash-file-name]
   (let [password (editor/ask-password)]
     (if (scrypt/check password
-                      (slurp file-name))
+                      (slurp password-hash-file-name))
       password
       (do (println "Invalid password")
           nil))))
 
 (comment
+  (create-password-hash-file "temp/laptop/password")
   (ask-and-check-password "temp/laptop/password")
- )
+  )
 
-(defn edit-file [file-name keyring passphrase]
+(defn edit-file-with-key-and-password [file-name secret-key password]
   (let [save (fn [text]
                (spit file-name
                      (-> text
-                         (encrypt keyring)
-                         (encrypt passphrase))))]
+                         (encrypt secret-key)
+                         (encrypt password))))]
     (if (.exists (io/file file-name))
       (-> (slurp file-name)
-          (decrypt-with-passphrase passphrase)
-          (decrypt-with-keyring keyring)
+          (decrypt password)
+          (decrypt secret-key)
           (editor/edit save))
       (editor/edit ""
                    save))))
 
+(defn edit-file [file-name secret-key-file-name password-hash-file]
+  (when-let [password (ask-and-check-password password-hash-file)]
+    (edit-file-with-key-and-password file-name
+                                     (decode-secret-key (slurp secret-key-file-name))
+                                     password)))
+
 (comment
   (edit-file "temp/secret-message"
-             (decode-keyring (slurp "temp/laptop/local.private"))
-             (ask-and-check-password "temp/laptop/password")))
+             "temp/laptop/local.secret"
+             "temp/laptop/password"
+             )
+
+  (-> (slurp "temp/secret-message")
+      (decrypt "foo")
+      (decrypt (decode (slurp "temp/laptop/local.secret"))))
+  )
 
 (defn write-remote-file [contents key-path url file-name]
   (run-command "bash" "-c" (str "ssh -i " key-path " " url " \"cat > " file-name "\"")  :in contents))
 
-(defn create-password [file-name]
-  (spit file-name (scrypt/encrypt (editor/ask-password))))
+
 
 (comment
 
-  (create-password "temp/laptop/password")
+
 
   (combinatorics/combinations (range 4)
                               2)
