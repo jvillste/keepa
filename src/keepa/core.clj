@@ -27,8 +27,8 @@
       (throw (ex-info (:err result) result)))
     (:out result)))
 
-(defn generate-secret-key []
-  (.getSecretKey (:secret (generate/generate-keys "" ""
+(defn generate-secret-key [id]
+  (.getSecretKey (:secret (generate/generate-keys id ""
                                                   (master-key (keypair (generate/rsa-keypair-generator 3072)
                                                                        :rsa-general))))))
 
@@ -70,8 +70,7 @@
 
 (comment
 
-
-  (def secret-key (generate-secret-key))
+  (def secret-key (generate-secret-key "key"))
 
   (pgp/key-info (decode (encode secret-key)))
   (pgp/key-info (decode (encode (public-key secret-key))))
@@ -83,14 +82,14 @@
            "bar")
   )
 
-(defn spit-secret-key [secret-key-file-name]
-  (->> (generate-secret-key)
+(defn spit-secret-key [id secret-key-file-name]
+  (->> (generate-secret-key id)
        (encode)
-       (spit secret-key-file-name)))
+       (spit  secret-key-file-name)))
 
 (defn spit-public-key [secret-key-file-name public-key-file-name]
   (->> (slurp secret-key-file-name)
-       (decode-secret-key)
+       (decode)
        (public-key)
        (encode)
        (spit public-key-file-name)))
@@ -98,11 +97,22 @@
 (defn make-directories [path]
   (.mkdirs (io/file path)))
 
+(defn make-keep [name keep-path public-key-path]
+  (make-directories keep-path)
+  (let [secret-key-file (io/file keep-path (str name ".secret"))]
+    (spit-secret-key name secret-key-file)
+    (spit-public-key secret-key-file
+                     (io/file public-key-path (str name ".public")))))
+(defn make-master-keep [path]
+  (make-directories path)
+  (spit-secret-key "master"
+                   (io/file path "master.secret")))
+
 (comment
-  (make-directories "temp/laptop")
-  (spit-secret-key "temp/laptop/local.secret")
-  (spit-public-key "temp/laptop/local.secret"
-                   "temp/laptop/local.public")
+  (make-keep "1" "temp/1" "temp/laptop")
+  (make-keep "2" "temp/2" "temp/laptop")
+  (make-keep "3" "temp/3" "temp/laptop")
+  (make-master-keep "temp/laptop")
   )
 
 (defn create-password-hash-file [file-name]
@@ -121,31 +131,79 @@
   (ask-and-check-password "temp/laptop/password")
   )
 
-(defn edit-file-with-key-and-password [file-name secret-key password]
-  (let [save (fn [text]
-               (spit file-name
-                     (-> text
-                         (encrypt secret-key)
-                         (encrypt password))))]
-    (if (.exists (io/file file-name))
-      (-> (slurp file-name)
-          (decrypt password)
-          (decrypt secret-key)
-          (editor/edit save))
-      (editor/edit ""
-                   save))))
+(defn load-master-file [file-name secret-key password]
+  (if (.exists (io/file file-name))
+    (-> (slurp file-name)
+        (decrypt password)
+        (decrypt secret-key))
+    ""))
 
-(defn edit-file [file-name secret-key-file-name password-hash-file]
+(defn save-master-file [contents file-name secret-key password]
+  (spit file-name
+        (-> contents
+            (encrypt secret-key)
+            (encrypt password))))
+
+(defn fingerprint [key]
+  (:fingerprint (pgp/key-info key)))
+
+(defn key-combination-file-name [master-file-path public-keys]
+  (str master-file-path "-" (apply str (interpose "-" (map fingerprint public-keys)))))
+
+(defn encrypt-with-key-combination [contents public-keys]
+  (reduce (fn [data public-key]
+            (encrypt data
+                     public-key))
+          contents
+          public-keys))
+
+(defn load-key [path]
+  (decode (slurp path)))
+
+(defn save-file-encrypted-with-key-combination [contents master-file-path public-keys]
+  (spit (key-combination-file-name master-file-path public-keys)
+        (encrypt-with-key-combination contents
+                                      public-keys)))
+
+(defn decrypt-with-key-combination [data private-keys]
+  (reduce (fn [data private-key]
+            (decrypt data
+                     private-key))
+          data
+          private-keys))
+
+(comment
+  (decrypt-with-key-combination (encrypt-with-key-combination "foo" (map load-key ["temp/laptop/1.public"
+                                                                                   "temp/laptop/2.public"]))
+                                (map load-key ["temp/2/key.secret"
+                                               "temp/1/key.secret"]))
+  
+  (save-file-encrypted-with-key-combination "foo"
+                                            "temp/laptop/foo"
+                                            (map load-key ["temp/laptop/1.public"
+                                                           "temp/laptop/2.public"]))
+  )
+
+(defn edit-file-with-key-and-password [file-name secret-key password public-keys key-combination-size]
+  (let [new-text-or-cancel (editor/edit (load-master-file file-name secret-key password))]
+    (when (not= :cancel new-text-or-cancel)
+      (save-master-file new-text-or-cancel
+                        file-name
+                        secret-key
+                        password))))
+
+(defn edit-file [file-name secret-key-file-name password-hash-file public-keys key-combination-size]
   (when-let [password (ask-and-check-password password-hash-file)]
     (edit-file-with-key-and-password file-name
-                                     (decode-secret-key (slurp secret-key-file-name))
-                                     password)))
+                                     (decode (slurp secret-key-file-name))
+                                     password
+                                     public-keys
+                                     key-combination-size)))
 
 (comment
   (edit-file "temp/secret-message"
              "temp/laptop/local.secret"
-             "temp/laptop/password"
-             )
+             "temp/laptop/password")
 
   (-> (slurp "temp/secret-message")
       (decrypt "foo")
@@ -159,10 +217,8 @@
 
 (comment
 
-
-
-  (combinatorics/combinations (range 4)
-                              2)
+  (combinatorics/combinations (range 5)
+                              3)
 
   ;; sudo useradd -K PASS_MAX_DAYS=-1 -m secret
   (clj-time/now)

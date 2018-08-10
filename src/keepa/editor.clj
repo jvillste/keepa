@@ -4,22 +4,24 @@
            [java.awt BorderLayout FlowLayout]
            [java.awt.event ActionListener KeyAdapter KeyEvent]))
 
-(defn edit [text on-save]
+(defn edit [text]
   (let [j-frame (JFrame. "Editor")
         root-j-panel (JPanel. (BorderLayout.))
         button-j-panel (JPanel. (FlowLayout.))
         text-area (JTextArea. text)
         save-button (JButton. "Save")
-        cancel-button (JButton. "Cancel")]
+        cancel-button (JButton. "Cancel")
+        channel (async/chan)]
     (.addActionListener save-button
                         (reify ActionListener
                           (actionPerformed [this event]
-                            (on-save (.getText text-area))
+                            (async/>!! channel (.getText text-area))
                             (.dispose j-frame))))
 
     (.addActionListener cancel-button
                         (reify ActionListener
                           (actionPerformed [this event]
+                            (async/>!! channel :cancel)
                             (.dispose j-frame))))
     (.add root-j-panel text-area BorderLayout/CENTER)
     (.add root-j-panel button-j-panel BorderLayout/PAGE_END)
@@ -27,7 +29,8 @@
     (.add button-j-panel cancel-button)
     (.setContentPane j-frame root-j-panel)
     (.pack j-frame)
-    (.setVisible j-frame true)))
+    (.setVisible j-frame true)
+    (async/<!! channel)))
 
 (defn ask-password []
   (let [j-frame (JFrame. "Editor")
@@ -47,8 +50,7 @@
     (async/<!! channel)))
 
 (comment
-  (edit "haa"
-        (fn [saved] (println saved)))
+  (edit "haa")
 
-  (ask-password (fn [password] (println password)))
+  (ask-password)
   )
