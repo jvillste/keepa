@@ -2,14 +2,15 @@
   (:require [clj-pgp.generate :as generate]
             [clj-pgp.core :as pgp]
             [clj-pgp.keyring :as keyring]
-            [clj-pgp.message :as message]
+            [keepa.message :as message]
             [crypto.password.scrypt :as scrypt]
             [clojure.java.shell :as shell]
             [clojure.java.io :as io]
             [clj-time.core :as clj-time]
             [clj-time.format :as format]
             [clojure.math.combinatorics :as combinatorics]
-            [keepa.editor :as editor])
+            [keepa.editor :as editor]
+            [clojure.test :refer :all])
   (:import [org.bouncycastle.openpgp PGPSecretKey PGPSecretKeyRing]))
 
 
@@ -68,10 +69,21 @@
     (decrypt-with-passphrase message password-or-secret-key)
     (decrypt-with-secret-key message password-or-secret-key)))
 
+(deftest test-encrypt
+  (is (= "foo" (decrypt (encrypt "foo" "bar")
+                        "bar"))))
+
+(defn key-user-id [key]
+  (first (:user-ids (pgp/key-info key))))
+
+(defn fingerprint [key]
+  (:fingerprint (pgp/key-info key)))
+
 (comment
 
   (def secret-key (generate-secret-key "key"))
 
+  (key-user-id secret-key)
   (pgp/key-info (decode (encode secret-key)))
   (pgp/key-info (decode (encode (public-key secret-key))))
 
@@ -80,12 +92,17 @@
 
   (decrypt (encrypt "foo" "bar")
            "bar")
+  (def encrypted (encrypt "foo" "bar"))
+  (time (encrypt "foo" "bar"))
+
+  (time (try (decrypt encrypted "foo")
+             (catch Exception e)))
   )
 
 (defn spit-secret-key [id secret-key-file-name]
   (->> (generate-secret-key id)
        (encode)
-       (spit  secret-key-file-name)))
+       (spit secret-key-file-name)))
 
 (defn spit-public-key [secret-key-file-name public-key-file-name]
   (->> (slurp secret-key-file-name)
@@ -103,12 +120,14 @@
     (spit-secret-key name secret-key-file)
     (spit-public-key secret-key-file
                      (io/file public-key-path (str name ".public")))))
+
 (defn make-master-keep [path]
   (make-directories path)
   (spit-secret-key "master"
                    (io/file path "master.secret")))
 
 (comment
+  (make-keep "key-1" "temp" "temp")
   (make-keep "1" "temp/1" "temp/laptop")
   (make-keep "2" "temp/2" "temp/laptop")
   (make-keep "3" "temp/3" "temp/laptop")
@@ -119,6 +138,7 @@
   (spit file-name (scrypt/encrypt (editor/ask-password))))
 
 (defn ask-and-check-password [password-hash-file-name]
+;; TODO:  do the checking by trying to open the previous version of the file with this password
   (let [password (editor/ask-password)]
     (if (scrypt/check password
                       (slurp password-hash-file-name))
@@ -144,11 +164,8 @@
             (encrypt secret-key)
             (encrypt password))))
 
-(defn fingerprint [key]
-  (:fingerprint (pgp/key-info key)))
-
 (defn key-combination-file-name [master-file-path public-keys]
-  (str master-file-path "-" (apply str (interpose "-" (map fingerprint public-keys)))))
+  (str master-file-path "_" (apply str (interpose "-" (map key-user-id public-keys)))))
 
 (defn encrypt-with-key-combination [contents public-keys]
   (reduce (fn [data public-key]
@@ -175,13 +192,17 @@
 (comment
   (decrypt-with-key-combination (encrypt-with-key-combination "foo" (map load-key ["temp/laptop/1.public"
                                                                                    "temp/laptop/2.public"]))
-                                (map load-key ["temp/2/key.secret"
-                                               "temp/1/key.secret"]))
-  
+                                (map load-key ["temp/2/2.secret"
+                                               "temp/1/1.secret"]))
+
   (save-file-encrypted-with-key-combination "foo"
                                             "temp/laptop/foo"
                                             (map load-key ["temp/laptop/1.public"
                                                            "temp/laptop/2.public"]))
+
+  (decrypt-with-key-combination (slurp "temp/laptop/foo-1-2")
+                                (map load-key ["temp/2/2.secret"
+                                               "temp/1/1.secret"]))
   )
 
 (defn edit-file-with-key-and-password [file-name secret-key password public-keys key-combination-size]
@@ -200,7 +221,41 @@
                                      public-keys
                                      key-combination-size)))
 
+(defn load-file-with-password [file-name password]
+  (if (.exists (io/file file-name))
+    (-> (slurp file-name)
+        (decrypt password))
+    ""))
+
+(defn save-file-with-password [file-name contents password]
+  (spit file-name
+        (encrypt contents password)))
+
+(defn edit-file-with-password [file-name]
+  (when-let [password (editor/ask-password)]
+    (save-file-with-password file-name
+                             (editor/edit (load-file-with-password file-name password))
+                             password)))
+
+(defn edit-file-with-password-and-keys [file-name public-key-file-names]
+  (when-let [password (editor/ask-password)]
+    (let [new-contents (editor/edit (load-file-with-password file-name password))]
+      (save-file-with-password file-name
+                               new-contents
+                               password)
+      (save-file-encrypted-with-key-combination new-contents
+                                                file-name
+                                                (map load-key public-key-file-names)))))
+
 (comment
+  (edit-file-with-password-and-keys "temp/secret"
+                                    ["temp/key-1.public"])
+
+  (let [passowrd (editor/ask-password)]
+    )
+
+  (edit-file-with-password "temp/message")
+
   (edit-file "temp/secret-message"
              "temp/laptop/local.secret"
              "temp/laptop/password")
@@ -213,12 +268,19 @@
 (defn write-remote-file [contents key-path url file-name]
   (run-command "bash" "-c" (str "ssh -i " key-path " " url " \"cat > " file-name "\"")  :in contents))
 
+(defn read-remote-file [key-path url file-name]
+  (run-command "bash" "-c" (str "ssh -i " key-path " " url " \"cat " file-name "\"")))
+
 
 
 (comment
 
   (combinatorics/combinations (range 5)
                               3)
+
+  (def secret (encrypt "this is a secret message this is a secret message this is a secret message" "this is a passphrase"))
+  (time (try (decrypt secret "this is a passphrase")
+             (catch Exception e)))
 
   ;; sudo useradd -K PASS_MAX_DAYS=-1 -m secret
   (clj-time/now)
@@ -228,6 +290,10 @@
                      "/Users/jukka/.ssh/secret"
                      "secret@sirpakauppinen.fi"
                      "greeting.txt")
+
+  (read-remote-file "/Users/jukka/.ssh/secret"
+                    "secret@sirpakauppinen.fi"
+                    "greeting.txt")
 
   (.getAbsolutePath (io/file "foo" "bar.txt"))
 

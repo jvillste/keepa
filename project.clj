@@ -8,4 +8,5 @@
                  [crypto-password "0.2.0"]
                  [clj-time "0.14.4"]
                  [org.clojure/math.combinatorics "0.1.4"]
-                 [org.clojure/core.async "0.4.474"]])
+                 [org.clojure/core.async "0.4.474"]
+                 [org.apache.commons/commons-csv "1.6"]])

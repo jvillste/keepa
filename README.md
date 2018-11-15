@@ -40,6 +40,27 @@ One's online identity is based on a set of passphrases that need to be kept secr
 * The update process must require access to at least two other places in addition to the place that is beeing updated so that a malicious person that has access to one of the places can not overwrite the information in another place.
 
 
+* Loosing a storage or keep means either that you can not access it any more or that malicious people has acquired the information in it.
+* When a storage is compromissed it means that mallicious people have read the information in it
+* Master computer is a computer that is used to update and read secrets on a daily basis
+* Passphrase is a secret that is not stored any where and only memorized. It is used to encrypt the master copy.
+* Master copy is a secret encrypted with a passphrase.
+  * used on a daily basis to read the secrets and to update them.
+  * Stored only in the master computer
+* Storage is a place that stores encrypted secrets
+  * Must be writable from the master computer
+  * There must be multiple storages so that loosing one storage is not harmfull
+* Keep is a place that stores a private key
+  * does not have to be writable or readable from the master computer.
+  * is only needed when the master copy is lost.
+
+
+* Storage can be a virtual machine that has an "update account" that can be used to write an encrypted secret but not to read it.
+  * update account credentials are stored in the master computer
+  * The root account to the storage virtual machine are stored in a keep
+* When the master computer is compromissed the attacker has access only to the master copy and not to the passpharse that is used to encrypt it.
+* When a storage is compromissed the attacker has encrypted secrets and the corresponding private keys need to be destroyed.
+
 ## Implementation
 * Keeps are processes that provide an API over the Internet.
 * Each keep stores
@@ -52,6 +73,8 @@ One's online identity is based on a set of passphrases that need to be kept secr
 * All communication between the places are encrypted with the key pairs
 * The update is done by
   * 
+
+
 
 ## License
 
