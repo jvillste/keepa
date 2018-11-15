@@ -10,16 +10,11 @@
             [clj-time.format :as format]
             [clojure.math.combinatorics :as combinatorics]
             [keepa.editor :as editor]
-            [clojure.test :refer :all])
+            [clojure.test :refer :all]
+            [keepa.cryptography :as cryptography])
   (:import [org.bouncycastle.openpgp PGPSecretKey PGPSecretKeyRing]))
 
 
-(extend-protocol pgp/Encodable
-
-  PGPSecretKey
-
-  (encode [secretkey]
-    (.getEncoded secretkey)))
 
 (defn run-command [& args]
   (let [result (apply shell/sh args)]
@@ -28,88 +23,6 @@
       (throw (ex-info (:err result) result)))
     (:out result)))
 
-(defn generate-secret-key [id]
-  (.getSecretKey (:secret (generate/generate-keys id ""
-                                                  (master-key (keypair (generate/rsa-keypair-generator 3072)
-                                                                       :rsa-general))))))
-
-(defn public-key [secret-key]
-  (.getPublicKey secret-key))
-
-(defn encode [secret-or-public-key]
-  (pgp/encode-ascii secret-or-public-key))
-
-(defn decode [secret-or-public-key-data]
-  (let [keyring (first (pgp/decode secret-or-public-key-data))]
-    (if (instance? PGPSecretKeyRing
-                   keyring)
-      (.getSecretKey keyring)
-      (.getPublicKey keyring))))
-
-(defn encrypt [message passphrase-or-public-key]
-  (message/encrypt
-   message
-   passphrase-or-public-key
-   :format :utf8
-   :cipher :aes-256
-   :compress :zip
-   :armor true))
-
-(defn decrypt-with-passphrase [message password]
-  (message/decrypt message
-                   password))
-
-(defn decrypt-with-secret-key [message secret-key]
-  (message/decrypt message
-                   (pgp/unlock-key secret-key
-                                   "")))
-
-(defn decrypt [message password-or-secret-key]
-  (if (string? password-or-secret-key)
-    (decrypt-with-passphrase message password-or-secret-key)
-    (decrypt-with-secret-key message password-or-secret-key)))
-
-(deftest test-encrypt
-  (is (= "foo" (decrypt (encrypt "foo" "bar")
-                        "bar"))))
-
-(defn key-user-id [key]
-  (first (:user-ids (pgp/key-info key))))
-
-(defn fingerprint [key]
-  (:fingerprint (pgp/key-info key)))
-
-(comment
-
-  (def secret-key (generate-secret-key "key"))
-
-  (key-user-id secret-key)
-  (pgp/key-info (decode (encode secret-key)))
-  (pgp/key-info (decode (encode (public-key secret-key))))
-
-  (decrypt (encrypt "foo" (public-key secret-key))
-           secret-key)
-
-  (decrypt (encrypt "foo" "bar")
-           "bar")
-  (def encrypted (encrypt "foo" "bar"))
-  (time (encrypt "foo" "bar"))
-
-  (time (try (decrypt encrypted "foo")
-             (catch Exception e)))
-  )
-
-(defn spit-secret-key [id secret-key-file-name]
-  (->> (generate-secret-key id)
-       (encode)
-       (spit secret-key-file-name)))
-
-(defn spit-public-key [secret-key-file-name public-key-file-name]
-  (->> (slurp secret-key-file-name)
-       (decode)
-       (public-key)
-       (encode)
-       (spit public-key-file-name)))
 
 (defn make-directories [path]
   (.mkdirs (io/file path)))
@@ -117,14 +30,14 @@
 (defn make-keep [name keep-path public-key-path]
   (make-directories keep-path)
   (let [secret-key-file (io/file keep-path (str name ".secret"))]
-    (spit-secret-key name secret-key-file)
-    (spit-public-key secret-key-file
-                     (io/file public-key-path (str name ".public")))))
+    (cryptography/spit-secret-key name secret-key-file)
+    (cryptography/spit-public-key secret-key-file
+                                  (io/file public-key-path (str name ".public")))))
 
 (defn make-master-keep [path]
   (make-directories path)
-  (spit-secret-key "master"
-                   (io/file path "master.secret")))
+  (cryptography/spit-secret-key "master"
+                                (io/file path "master.secret")))
 
 (comment
   (make-keep "key-1" "temp" "temp")
@@ -138,7 +51,7 @@
   (spit file-name (scrypt/encrypt (editor/ask-password))))
 
 (defn ask-and-check-password [password-hash-file-name]
-;; TODO:  do the checking by trying to open the previous version of the file with this password
+  ;; TODO:  do the checking by trying to open the previous version of the file with this password
   (let [password (editor/ask-password)]
     (if (scrypt/check password
                       (slurp password-hash-file-name))
@@ -154,28 +67,28 @@
 (defn load-master-file [file-name secret-key password]
   (if (.exists (io/file file-name))
     (-> (slurp file-name)
-        (decrypt password)
-        (decrypt secret-key))
+        (cryptography/decrypt password)
+        (cryptography/decrypt secret-key))
     ""))
 
 (defn save-master-file [contents file-name secret-key password]
   (spit file-name
         (-> contents
-            (encrypt secret-key)
-            (encrypt password))))
+            (cryptography/encrypt secret-key)
+            (cryptography/encrypt password))))
 
 (defn key-combination-file-name [master-file-path public-keys]
-  (str master-file-path "_" (apply str (interpose "-" (map key-user-id public-keys)))))
+  (str master-file-path "_" (apply str (interpose "-" (map cryptography/user-id public-keys)))))
 
 (defn encrypt-with-key-combination [contents public-keys]
   (reduce (fn [data public-key]
-            (encrypt data
-                     public-key))
+            (cryptography/encrypt data
+                                  public-key))
           contents
           public-keys))
 
 (defn load-key [path]
-  (decode (slurp path)))
+  (cryptography/decode (slurp path)))
 
 (defn save-file-encrypted-with-key-combination [contents master-file-path public-keys]
   (spit (key-combination-file-name master-file-path public-keys)
@@ -184,8 +97,8 @@
 
 (defn decrypt-with-key-combination [data private-keys]
   (reduce (fn [data private-key]
-            (decrypt data
-                     private-key))
+            (cryptography/decrypt data
+                                  private-key))
           data
           private-keys))
 
@@ -216,7 +129,7 @@
 (defn edit-file [file-name secret-key-file-name password-hash-file public-keys key-combination-size]
   (when-let [password (ask-and-check-password password-hash-file)]
     (edit-file-with-key-and-password file-name
-                                     (decode (slurp secret-key-file-name))
+                                     (cryptography/decode (slurp secret-key-file-name))
                                      password
                                      public-keys
                                      key-combination-size)))
@@ -224,12 +137,12 @@
 (defn load-file-with-password [file-name password]
   (if (.exists (io/file file-name))
     (-> (slurp file-name)
-        (decrypt password))
+        (cryptography/decrypt password))
     ""))
 
 (defn save-file-with-password [file-name contents password]
   (spit file-name
-        (encrypt contents password)))
+        (cryptography/encrypt contents password)))
 
 (defn edit-file-with-password [file-name]
   (when-let [password (editor/ask-password)]
