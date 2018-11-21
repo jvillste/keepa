@@ -1,20 +1,13 @@
 (ns keepa.core
-  (:require [clj-pgp.generate :as generate]
-            [clj-pgp.core :as pgp]
+  (:require [clj-pgp.core :as pgp]
             [clj-pgp.keyring :as keyring]
-            [keepa.message :as message]
-            [crypto.password.scrypt :as scrypt]
-            [clojure.java.shell :as shell]
-            [clojure.java.io :as io]
             [clj-time.core :as clj-time]
-            [clj-time.format :as format]
+            [clojure.java.io :as io]
+            [clojure.java.shell :as shell]
             [clojure.math.combinatorics :as combinatorics]
-            [keepa.editor :as editor]
-            [clojure.test :refer :all]
-            [keepa.cryptography :as cryptography])
-  (:import [org.bouncycastle.openpgp PGPSecretKey PGPSecretKeyRing]))
-
-
+            [crypto.password.scrypt :as scrypt]
+            [keepa.cryptography :as cryptography]
+            [keepa.editor :as editor]))
 
 (defn run-command [& args]
   (let [result (apply shell/sh args)]
@@ -160,6 +153,12 @@
                                                 file-name
                                                 (map load-key public-key-file-names)))))
 
+(defn write-remote-file [contents key-path url file-name]
+  (run-command "bash" "-c" (str "ssh -i " key-path " " url " \"cat > " file-name "\"")  :in contents))
+
+(defn read-remote-file [key-path url file-name]
+  (run-command "bash" "-c" (str "ssh -i " key-path " " url " \"cat " file-name "\"")))
+
 (comment
   (edit-file-with-password-and-keys "temp/secret"
                                     ["temp/key-1.public"])
@@ -176,17 +175,6 @@
   (-> (slurp "temp/secret-message")
       (decrypt "foo")
       (decrypt (decode (slurp "temp/laptop/local.secret"))))
-  )
-
-(defn write-remote-file [contents key-path url file-name]
-  (run-command "bash" "-c" (str "ssh -i " key-path " " url " \"cat > " file-name "\"")  :in contents))
-
-(defn read-remote-file [key-path url file-name]
-  (run-command "bash" "-c" (str "ssh -i " key-path " " url " \"cat " file-name "\"")))
-
-
-
-(comment
 
   (combinatorics/combinations (range 5)
                               3)
@@ -255,4 +243,5 @@
                                    [:kone]}}}
            :leena #{}
            :koti #{}
-           :kone #{}}})
+           :kone #{}}}
+  )
