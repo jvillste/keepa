@@ -1,6 +1,6 @@
 (ns keepa.editor
   (:require [clojure.core.async :as async])
-  (:import [javax.swing JFrame JTextArea JButton JPanel JPasswordField]
+  (:import [javax.swing JFrame JTextArea JButton JPanel JPasswordField JScrollPane]
            [java.awt BorderLayout FlowLayout]
            [java.awt.event ActionListener KeyAdapter KeyEvent]))
 
@@ -9,6 +9,7 @@
         root-j-panel (JPanel. (BorderLayout.))
         button-j-panel (JPanel. (FlowLayout.))
         text-area (JTextArea. text)
+        scroll-pane (JScrollPane. text-area)
         save-button (JButton. "Save")
         cancel-button (JButton. "Cancel")
         channel (async/chan)]
@@ -23,14 +24,17 @@
                           (actionPerformed [this event]
                             (async/>!! channel :cancel)
                             (.dispose j-frame))))
-    (.add root-j-panel text-area BorderLayout/CENTER)
+    (.add root-j-panel scroll-pane BorderLayout/CENTER)
     (.add root-j-panel button-j-panel BorderLayout/PAGE_END)
     (.add button-j-panel save-button)
     (.add button-j-panel cancel-button)
     (.setContentPane j-frame root-j-panel)
     (.pack j-frame)
     (.setVisible j-frame true)
-    (async/<!! channel)))
+    (let [result (async/<!! channel)]
+      (if (= :cancel result)
+        text
+        result))))
 
 (defn ask-password []
   (let [j-frame (JFrame. "Editor")

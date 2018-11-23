@@ -7,7 +7,17 @@
             [clojure.math.combinatorics :as combinatorics]
             [crypto.password.scrypt :as scrypt]
             [keepa.cryptography :as cryptography]
-            [keepa.editor :as editor]))
+            [keepa.editor :as editor]
+            [keepa.time :as time]))
+
+(defn path [& parts]
+  (.getPath (apply io/file parts)))
+
+(defn make-directories [path]
+  (.mkdirs (io/file path)))
+
+(defn file-name [file-path]
+  (.getName (io/file file-path)))
 
 (defn run-command [& args]
   (let [result (apply shell/sh args)]
@@ -15,7 +25,6 @@
               (not= "" (:err result)))
       (throw (ex-info (:err result) result)))
     (:out result)))
-
 
 (defn make-directories [path]
   (.mkdirs (io/file path)))
@@ -32,14 +41,6 @@
   (cryptography/spit-secret-key "master"
                                 (io/file path "master.secret")))
 
-(comment
-  (make-keep "key-1" "temp" "temp")
-  (make-keep "1" "temp/1" "temp/laptop")
-  (make-keep "2" "temp/2" "temp/laptop")
-  (make-keep "3" "temp/3" "temp/laptop")
-  (make-master-keep "temp/laptop")
-  )
-
 (defn create-password-hash-file [file-name]
   (spit file-name (scrypt/encrypt (editor/ask-password))))
 
@@ -51,11 +52,6 @@
       password
       (do (println "Invalid password")
           nil))))
-
-(comment
-  (create-password-hash-file "temp/laptop/password")
-  (ask-and-check-password "temp/laptop/password")
-  )
 
 (defn load-master-file [file-name secret-key password]
   (if (.exists (io/file file-name))
@@ -95,21 +91,10 @@
           data
           private-keys))
 
-(comment
-  (decrypt-with-key-combination (encrypt-with-key-combination "foo" (map load-key ["temp/laptop/1.public"
-                                                                                   "temp/laptop/2.public"]))
-                                (map load-key ["temp/2/2.secret"
-                                               "temp/1/1.secret"]))
+(defn decrypt-file-with-key-combination [file-path private-key-paths]
+  (decrypt-with-key-combination (slurp file-path)
+                                (map load-key private-key-paths)))
 
-  (save-file-encrypted-with-key-combination "foo"
-                                            "temp/laptop/foo"
-                                            (map load-key ["temp/laptop/1.public"
-                                                           "temp/laptop/2.public"]))
-
-  (decrypt-with-key-combination (slurp "temp/laptop/foo-1-2")
-                                (map load-key ["temp/2/2.secret"
-                                               "temp/1/1.secret"]))
-  )
 
 (defn edit-file-with-key-and-password [file-name secret-key password public-keys key-combination-size]
   (let [new-text-or-cancel (editor/edit (load-master-file file-name secret-key password))]
@@ -143,15 +128,64 @@
                              (editor/edit (load-file-with-password file-name password))
                              password)))
 
-(defn edit-file-with-password-and-keys [file-name public-key-file-names]
-  (when-let [password (editor/ask-password)]
-    (let [new-contents (editor/edit (load-file-with-password file-name password))]
-      (save-file-with-password file-name
-                               new-contents
+(defn copy-file-and-encrypt-with-password [source-file-path target-file-path password-hash-file-path]
+  (when-let [password (ask-and-check-password password-hash-file-path)]
+    (save-file-with-password target-file-path
+                             (slurp source-file-path)
+                             password)))
+
+(defn copy-file-and-encrypt-with-key-combination [source-file-path target-file-path public-key-file-paths]
+  (save-file-encrypted-with-key-combination (slurp source-file-path)
+                                            target-file-path
+                                            (map load-key public-key-file-paths)))
+
+(defn store-file-path [file-path store-path]
+  (path store-path (str (file-name file-path)  "-" (time/local-time-stamp-string))))
+
+(defn copy-file-and-encrypt-with-password-and-key-combination [source-file-path target-file-path password-hash-file-path public-key-file-paths]
+  (when-let [password (ask-and-check-password password-hash-file-path)]
+    (save-file-with-password target-file-path
+                             (slurp source-file-path)
+                             password)
+    (copy-file-and-encrypt-with-key-combination source-file-path
+                                                target-file-path
+                                                public-key-file-paths)))
+
+(defn backup-file-and-encrypt-with-password-and-key-combination [source-file-path store-path password-hash-file-path public-key-file-paths]
+  (copy-file-and-encrypt-with-password-and-key-combination source-file-path
+                                                           (store-file-path source-file-path
+                                                                            store-path)
+                                                           password-hash-file-path
+                                                           public-key-file-paths))
+
+
+(defn spit-file-and-encrypt-with-password-and-key-combination [contents file-name store-path password-hash-file-path public-key-file-paths]
+  (when-let [password (ask-and-check-password password-hash-file-path)]
+    (let [store-file-path (store-file-path file-name store-path)]
+      (save-file-with-password store-file-path
+                               contents
                                password)
-      (save-file-encrypted-with-key-combination new-contents
-                                                file-name
-                                                (map load-key public-key-file-names)))))
+      (save-file-encrypted-with-key-combination contents
+                                                store-file-path
+                                                (map load-key public-key-file-paths)))))
+
+(defn edit-file-with-password-and-keys [file-path pasword-hash-file-path public-key-file-names store-path]
+  (when-let [password (ask-and-check-password pasword-hash-file-path)]
+    (let [old-contents (load-file-with-password file-path password)
+          new-contents (editor/edit old-contents)
+          store-file-path (store-file-path file-path store-path)]
+      (if (not= old-contents new-contents)
+        (do
+          (save-file-with-password file-path
+                                   new-contents
+                                   password)
+          (save-file-with-password store-file-path
+                                   new-contents
+                                   password)
+          (save-file-encrypted-with-key-combination new-contents
+                                                    store-file-path
+                                                    (map load-key public-key-file-names)))
+        (println "No changes made.")))))
 
 (defn write-remote-file [contents key-path url file-name]
   (run-command "bash" "-c" (str "ssh -i " key-path " " url " \"cat > " file-name "\"")  :in contents))
@@ -159,89 +193,58 @@
 (defn read-remote-file [key-path url file-name]
   (run-command "bash" "-c" (str "ssh -i " key-path " " url " \"cat " file-name "\"")))
 
+
+(defn sync-remote-directory [local-directory username host remote-directory]
+  (run-command "rsync" "-a" (str local-directory "/")  (str username "@" host ":" remote-directory)))
+
 (comment
-  (edit-file-with-password-and-keys "temp/secret"
-                                    ["temp/key-1.public"])
 
-  (let [passowrd (editor/ask-password)]
-    )
+  (create-password-hash-file "temp/hash")
 
-  (edit-file-with-password "temp/message")
+  (spit "foobar" "temp/test.txt")
 
-  (edit-file "temp/secret-message"
-             "temp/laptop/local.secret"
-             "temp/laptop/password")
+  (copy-file-and-encrypt-with-password "temp/test.txt"
+                                       "temp/test.txt.encrypted"
+                                       "temp/hash")
 
-  (-> (slurp "temp/secret-message")
-      (decrypt "foo")
-      (decrypt (decode (slurp "temp/laptop/local.secret"))))
+  (make-keep "test-keep" "temp" "temp")
 
-  (combinatorics/combinations (range 5)
-                              3)
+  (copy-file-and-encrypt-with-key-combination "temp/test.txt"
+                                              "temp/test.txt.encrypted"
+                                              ["temp/test-keep.public"])
 
-  (def secret (encrypt "this is a secret message this is a secret message this is a secret message" "this is a passphrase"))
-  (time (try (decrypt secret "this is a passphrase")
-             (catch Exception e)))
+  (backup-file-and-encrypt-with-password-and-key-combination "temp/test.txt"
+                                                             "temp/test.txt.encrypted"
+                                                             "temp/hash"
+                                                             ["temp/test-keep.public"])
 
-  ;; sudo useradd -K PASS_MAX_DAYS=-1 -m secret
-  (clj-time/now)
-  (clojure.instant/parse-timestamp)
-  (pr-str (java.util.Date.))
-  (write-remote-file "hello"
-                     "/Users/jukka/.ssh/secret"
-                     "secret@sirpakauppinen.fi"
-                     "greeting.txt")
-
-  (read-remote-file "/Users/jukka/.ssh/secret"
-                    "secret@sirpakauppinen.fi"
-                    "greeting.txt")
-
-  (.getAbsolutePath (io/file "foo" "bar.txt"))
-
-  (run-command "bash" "-c" "ssh -i /Users/jukka/.ssh/secret secret@sirpakauppinen.fi \"cat > foo.txt\"" :in "foo2\nbar")
-  (run-command "bash" "-c" "ssh -i /Users/jukka/.ssh/secret secret@sirpakauppinen.fi cat greeting.txt")
-  (run-command "cat" ">" "foo.txt" :in (io/input-stream (.getBytes "foo2")))
-  (run-command "cat" ">" "foo.txt" :in (io/input-stream (.getBytes "foo2")))
-
-  (io/make-parents "temp/laptop/foo")
-  (io/make-parents "temp/far-keep-1/foo")
-  (io/make-parents "temp/far-keep-2/foo")
-  (make-directories "temp/cloud")
-
-  (spit-secret-key "temp/laptop/local.private")
-  (spit-key-ring "laptop" "temp/laptop" "temp/laptop")
-  (spit-key-ring "far-keep-2" "temp/laptop" "temp/far-keep-2")
-
-  (pgp/key-info (:public (generate-keyring "foo")))
-
-  (encode-public-key keyring)
-  (spit "keyring.asc" (encode-secret-key keyring))
-  (decode-keyring (encode-secret-key keyring))
-  (spit "message.asc" (encrypt-with-keyring "foo" keyring))
-  (pgp/decode (encrypt-with-keyring "foo" keyring))
-  (let [keyring (keyring/list-public-keys (decode-keyring (slurp "temp/laptop/local.private")))]
-    keyring
-    #_(keyring/list-public-keys (:public keyring))
-    #_(decrypt-with-keyring (encrypt-with-keyring "foo" keyring)
-                            keyring))
-
-  (scrypt/check "foo" (scrypt/encrypt "foo"))
+  (decrypt-file-with-key-combination "temp/test.txt.encrypted_test-keep"
+                                     ["temp/test-keep.secret"])
 
 
+  (spit-file-and-encrypt-with-password-and-key-combination "this is secret"
+                                                           "very-secret"
+                                                           "temp/store"
+                                                           "temp/hash"
+                                                           ["temp/key-1.public"])
 
-  {:public-keys #{}
-   :private-key nil
-   :secrets #{:passwords :second-factories}
-   :passwords #{:password}
-   :keeps {:eine #{{:secret :passwords
-                    :encryptions #{[:leena]
-                                   [:password]}}
+  (-> (slurp "temp/store/very-secret-2018-11-22-19-56-36")
+      (cryptography/decrypt "foo"))
 
-                   {:secret :second-factories
-                    :encryptions #{[:leena]
-                                   [:koti]
-                                   [:kone]}}}
-           :leena #{}
-           :koti #{}
-           :kone #{}}}
+  (-> (slurp "temp/store/very-secret-2018-11-22-19-56-36_key-1")
+      (cryptography/decrypt (load-key "temp/key-1.secret")))
+
+  (edit-file-with-password-and-keys "temp/secret2"
+                                    "temp/hash"
+                                    ["temp/key-1.public"]
+                                    "temp/store")
+
+  (save-file-encrypted-with-key-combination "foo"
+                                            "temp/laptop/foo"
+                                            (map load-key ["temp/laptop/1.public"
+                                                           "temp/laptop/2.public"]))
+
+  (decrypt-with-key-combination (slurp "temp/laptop/foo-1-2")
+                                (map load-key ["temp/2/2.secret"
+                                               "temp/1/1.secret"]))
   )
