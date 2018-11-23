@@ -1,3 +1,5 @@
+;; this is from clj-pgp: https://github.com/greglook/clj-pgp/blob/develop/src/clj_pgp/message.clj
+;; it is modified to create BcPBEKeyEncryptionMethodGenerator with large S2K -value
 (ns keepa.message
   "The functions in this namespace package raw data into PGP _messages_, which
   can be compressed, encrypted, and signed.
