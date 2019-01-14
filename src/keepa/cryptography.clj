@@ -34,7 +34,9 @@
   (message/encrypt
    message
    passphrase-or-public-key
-   :format :utf8
+   :format (if (string? message)
+             :utf8
+             :binary)
    :cipher :aes-256
    :compress :zip
    :armor true))

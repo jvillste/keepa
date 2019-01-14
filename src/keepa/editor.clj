@@ -1,6 +1,6 @@
 (ns keepa.editor
   (:require [clojure.core.async :as async])
-  (:import [javax.swing JFrame JTextArea JButton JPanel JPasswordField JScrollPane]
+  (:import [javax.swing JFrame JTextArea JButton JPanel JPasswordField JScrollPane JLabel ImageIcon]
            [java.awt BorderLayout FlowLayout]
            [java.awt.event ActionListener KeyAdapter KeyEvent]))
 
@@ -58,3 +58,13 @@
 
   (ask-password)
   )
+
+
+(defn show-image [data]
+  (let [j-frame (JFrame. "Editor")
+        root-j-panel (JPanel. (BorderLayout.))
+        scroll-pane (JScrollPane. (JLabel. (ImageIcon. data)))]
+    (.add root-j-panel scroll-pane BorderLayout/CENTER)
+    (.setContentPane j-frame root-j-panel)
+    (.pack j-frame)
+    (.setVisible j-frame true)))

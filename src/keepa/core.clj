@@ -1,10 +1,6 @@
 (ns keepa.core
-  (:require [clj-pgp.core :as pgp]
-            [clj-pgp.keyring :as keyring]
-            [clj-time.core :as clj-time]
-            [clojure.java.io :as io]
+  (:require [clojure.java.io :as io]
             [clojure.java.shell :as shell]
-            [clojure.math.combinatorics :as combinatorics]
             [crypto.password.scrypt :as scrypt]
             [keepa.cryptography :as cryptography]
             [keepa.editor :as editor]
@@ -25,6 +21,29 @@
               (not= "" (:err result)))
       (throw (ex-info (:err result) result)))
     (:out result)))
+
+
+(defn capture-image-with-ffmpeg []
+  (let [result (shell/sh "ffmpeg"
+                         "-f" "avfoundation"
+                         "-video_size" "1280x720"
+                         "-framerate" "30"
+                         "-i" "0"
+                         "-vframes" "1"
+                         "-f" "mjpeg"
+                         "pipe:1"
+                         :out-enc :bytes)]
+    (:out result)))
+
+(comment
+  (editor/show-image (capture-image-with-ffmpeg))
+  (save-file-with-password "temp/test.jpg.password"
+                           (capture-image-with-ffmpeg)
+                           "foobar")
+  (editor/show-image (cryptography/decrypt (io/file "temp/test.jpg.password")
+                                           "foobar"))
+  )
+
 
 (defn make-directories [path]
   (.mkdirs (io/file path)))
