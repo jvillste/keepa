@@ -4,7 +4,10 @@
             [crypto.password.scrypt :as scrypt]
             [keepa.cryptography :as cryptography]
             [keepa.editor :as editor]
-            [keepa.time :as time]))
+            [keepa.time :as time]
+            [keepa.qr :as qr]
+            [keepa.image :as image]
+            [keepa.web-camera :as web-camera]))
 
 (defn path [& parts]
   (.getPath (apply io/file parts)))
@@ -23,20 +26,15 @@
     (:out result)))
 
 
-(defn capture-image-with-ffmpeg []
-  (let [result (shell/sh "ffmpeg"
-                         "-f" "avfoundation"
-                         "-video_size" "1280x720"
-                         "-framerate" "30"
-                         "-i" "0"
-                         "-vframes" "1"
-                         "-f" "mjpeg"
-                         "pipe:1"
-                         :out-enc :bytes)]
-    (:out result)))
-
 (comment
-  (editor/show-image (capture-image-with-ffmpeg))
+  (def secret-key (cryptography/encode (cryptography/generate-secret-key "keep2")))
+  (editor/show-image (qr/text-to-qr-code-image secret-key))
+  (editor/show-image (web-camera/capture-image-with-ffmpeg))
+  (editor/show-image (web-camera/capture-image))
+  (image/buffered-image-to-png-file (qr/text-to-qr-code-image secret-key)
+                                    "temp/code.png")
+  (qr/text-from-qr-code-image (image/image-bytes-to-buffered-image (web-camera/capture-image-with-ffmpeg)))
+
   (save-file-with-password "temp/test.jpg.password"
                            (capture-image-with-ffmpeg)
                            "foobar")

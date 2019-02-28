@@ -68,3 +68,38 @@
     (.setContentPane j-frame root-j-panel)
     (.pack j-frame)
     (.setVisible j-frame true)))
+
+(defn capture-image [capture]
+  (let [j-frame (JFrame. "Editor")
+        image-atom (atom nil)
+        root-j-panel (JPanel. (BorderLayout.))
+        scroll-pane (JScrollPane. (JLabel. (ImageIcon. (capture))))
+        _ (.add root-j-panel scroll-pane BorderLayout/CENTER)
+        button-j-panel (JPanel. (FlowLayout.))
+
+        capture (fn []
+                  (reset! image-atom (capture))
+                  (.removeAll scroll-pane)
+                  (.add scroll-pane (JLabel. (ImageIcon. @image-atom)))
+                  (.revalidate scroll-pane)
+                  (.repaint scroll-pane))
+        save-button (JButton. "Save")
+        take-another-button (JButton. "Take another")
+        channel (async/chan)]
+    (capture)
+    (.addActionListener save-button
+                        (reify ActionListener
+                          (actionPerformed [this event]
+                            (async/>!! channel @image-atom)
+                            (.dispose j-frame))))
+    (.addActionListener take-another-button
+                        (reify ActionListener
+                          (actionPerformed [this event]
+                            (capture))))
+    (.add root-j-panel button-j-panel BorderLayout/PAGE_END)
+    (.add button-j-panel save-button)
+    (.add button-j-panel take-another-button)
+    (.setContentPane j-frame root-j-panel)
+    (.pack j-frame)
+    (.setVisible j-frame true)
+    (async/<!! channel)))
