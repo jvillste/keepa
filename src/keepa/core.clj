@@ -1,13 +1,16 @@
 (ns keepa.core
   (:require [clojure.java.io :as io]
-            [clojure.java.shell :as shell]
+            [keepa.shell :as shell]
             [crypto.password.scrypt :as scrypt]
             [keepa.cryptography :as cryptography]
             [keepa.editor :as editor]
             [keepa.time :as time]
             [keepa.qr :as qr]
             [keepa.image :as image]
-            [keepa.web-camera :as web-camera]))
+            [keepa.web-camera :as web-camera]
+            [keepa.printer :as printer])
+  (:import [java.awt.image BufferedImage]
+           java.awt.Color))
 
 (defn path [& parts]
   (.getPath (apply io/file parts)))
@@ -18,17 +21,26 @@
 (defn file-name [file-path]
   (.getName (io/file file-path)))
 
-(defn run-command [& args]
-  (let [result (apply shell/sh args)]
-    (when (or (not= 0 (:exit result))
-              (not= "" (:err result)))
-      (throw (ex-info (:err result) result)))
-    (:out result)))
-
 
 (comment
   (def secret-key (cryptography/encode (cryptography/generate-secret-key "keep2")))
   (editor/show-image (qr/text-to-qr-code-image secret-key))
+
+  (editor/show-image (let [code-image (qr/text-to-qr-code-image "foo")
+                           image (BufferedImage. 200 200 BufferedImage/TYPE_INT_ARGB)
+                           graphics (.getGraphics image)]
+                       (.drawImage graphics
+                                   code-image
+                                   10
+                                   10
+                                   80
+                                   80
+                                   (Color/WHITE)
+                                   nil)
+                       (.dispose graphics)
+                       image))
+
+  (printer/print-image (qr/text-to-qr-code-image "foo"))
   (editor/show-image (web-camera/capture-image-with-ffmpeg))
   (editor/show-image (web-camera/capture-image))
   (image/buffered-image-to-png-file (qr/text-to-qr-code-image secret-key)
@@ -46,12 +58,22 @@
 (defn make-directories [path]
   (.mkdirs (io/file path)))
 
-(defn make-keep [name keep-path public-key-path]
-  (make-directories keep-path)
-  (let [secret-key-file (io/file keep-path (str name ".secret"))]
+(defn make-keep [name path]
+  (let [secret-key-file (io/file path (str name ".secret"))]
     (cryptography/spit-secret-key name secret-key-file)
     (cryptography/spit-public-key secret-key-file
-                                  (io/file public-key-path (str name ".public")))))
+                                  (io/file path (str name ".public")))))
+
+(defn make-paper-keep [path name storage-details]
+  (let [secret-key (->> (cryptography/generate-secret-key name)
+                        (cryptography/encode))]
+    (image/buffered-image-to-png-file (qr/text-to-qr-code-image (pr-str {:secret-key secret-key
+                                                                         :storage storage-details}))
+                                      (io/file path (str name ".secret.png")))
+    (->> secret-key
+         (cryptography/public-key)
+         (cryptography/encode)
+         (spit (io/file path (str name ".public"))))))
 
 (defn make-master-keep [path]
   (make-directories path)
@@ -204,17 +226,20 @@
                                                     (map load-key public-key-file-names)))
         (println "No changes made.")))))
 
-(defn write-remote-file [contents key-path url file-name]
-  (run-command "bash" "-c" (str "ssh -i " key-path " " url " \"cat > " file-name "\"")  :in contents))
-
-(defn read-remote-file [key-path url file-name]
-  (run-command "bash" "-c" (str "ssh -i " key-path " " url " \"cat " file-name "\"")))
 
 
 (defn sync-remote-directory [local-directory username host remote-directory]
-  (run-command "rsync" "-a" (str local-directory "/")  (str username "@" host ":" remote-directory)))
+  (shell/run-command "rsync" "-a" (str local-directory "/")  (str username "@" host ":" remote-directory)))
 
 (comment
+  (make-directories "temp/test")
+  (make-keep "master" "temp/test")
+  (make-paper-keep "keep1" "temp/test"
+                   {:url "http://example.com"
+                    :username "foo"
+                    :password "bar"})
+  
+  
 
   (create-password-hash-file "temp/hash")
 

@@ -28,7 +28,7 @@ One's online identity is based on a set of passphrases that need to be kept secr
 * Secrets are stored in devices that are located in separate places
 * Place can be compromised in various ways:
   * it can be destroyed by fire or flood
-  * the dvices memory can get corrupted or degrade to an unreadable state
+  * the devices memory can get corrupted or degrade to an unreadable state
   * It can be stolen or copied by malicious people
 
 
@@ -72,13 +72,5 @@ One's online identity is based on a set of passphrases that need to be kept secr
   * The person who owns the secrets physically approves the transfer on the server
 * All communication between the places are encrypted with the key pairs
 * The update is done by
-  * 
+  *
 
-
-
-## License
-
-Copyright © 2018 FIXME
-
-Distributed under the Eclipse Public License either version 1.0 or (at
-your option) any later version.

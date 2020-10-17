@@ -11,4 +11,7 @@
                  [org.clojure/math.combinatorics "0.1.4"]
                  [org.clojure/core.async "0.4.474"]
                  [org.apache.commons/commons-csv "1.6"]
-                 [com.github.sarxos/webcam-capture "0.3.10"]])
+                 [com.github.sarxos/webcam-capture "0.3.10"]
+                 [clj-http "2.0.1"]
+                 [hickory "0.7.1"]]
+  :main keepa.main)
