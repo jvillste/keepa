@@ -1,6 +1,10 @@
 # Keepnet
 Keeping your secrets alive.
 
+# Example usage
+
+See src/example.clj
+
 # How to store secrets?
 
 One's online identity is based on a set of passphrases that need to be kept secret.
@@ -73,4 +77,3 @@ One's online identity is based on a set of passphrases that need to be kept secr
 * All communication between the places are encrypted with the key pairs
 * The update is done by
   *
-

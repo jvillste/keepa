@@ -59,6 +59,7 @@
   (.mkdirs (io/file path)))
 
 (defn make-keep [name path]
+  (make-directories path)
   (let [secret-key-file (io/file path (str name ".secret"))]
     (cryptography/spit-secret-key name secret-key-file)
     (cryptography/spit-public-key secret-key-file

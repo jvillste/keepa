@@ -5,7 +5,7 @@
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.9.0"]
                  [com.google.zxing/javase "3.3.3"]
-                 [mvxcvi/clj-pgp "0.9.0"]
+                 [mvxcvi/clj-pgp "1.0.0"]
                  [crypto-password "0.2.0"]
                  [clj-time "0.14.4"]
                  [org.clojure/math.combinatorics "0.1.4"]

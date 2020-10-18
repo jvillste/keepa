@@ -12,4 +12,4 @@ pom.xml.asc
 /temp
 /.DS_Store
 .DS_Store
-/local/run.clj
+/local
