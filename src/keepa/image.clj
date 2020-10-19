@@ -4,6 +4,9 @@
            java.io.ByteArrayInputStream)
   (:require [clojure.java.io :as io]))
 
+(defn file-to-buffered-image [file-name]
+  (ImageIO/read (io/file file-name)))
+
 (defn image-bytes-to-buffered-image [data]
   (ImageIO/read (ByteArrayInputStream. data)))
 

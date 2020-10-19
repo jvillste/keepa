@@ -41,10 +41,24 @@
                        image))
 
   (printer/print-image (qr/text-to-qr-code-image "foo"))
+  (image/buffered-image-to-png-file)
   (editor/show-image (web-camera/capture-image-with-ffmpeg))
   (editor/show-image (web-camera/capture-image))
-  (image/buffered-image-to-png-file (qr/text-to-qr-code-image secret-key)
-                                    "temp/code.png")
+  (count (pr-str secret-key))
+  (count secret-key)
+  (do (image/buffered-image-to-png-file (qr/text-to-qr-code-image (str secret-key (apply str (repeat 100 "x")))
+                                                                  #_(pr-str w)
+                                                                  #_(pr-str {:secret-key secret-key
+                                                                             ;; :storage {;;:url "www.sirpakauppinen.fi/public/sAO3eSFXPh0NK38kQk2E/"
+                                                                             ;;           :username "user"
+                                                                             ;;           :password "2oewckaQ73o9WQPhQS1h"}
+                                                                             }))
+                                        "temp/code.png")
+
+      (qr/text-from-qr-code-image (image/file-to-buffered-image "temp/code.png"#_"/Users/jukka/google-drive/src/keepa/local/paper-keep-1/paper-keep-1.secret.png")))
+
+  (editor/show-image (image/file-to-buffered-image "temp/code.png" #_ "/Users/jukka/google-drive/src/keepa/local/paper-keep-1/paper-keep-1.secret.png"))
+
   (qr/text-from-qr-code-image (image/image-bytes-to-buffered-image (web-camera/capture-image-with-ffmpeg)))
 
   (save-file-with-password "temp/test.jpg.password"
@@ -52,8 +66,13 @@
                            "foobar")
   (editor/show-image (cryptography/decrypt (io/file "temp/test.jpg.password")
                                            "foobar"))
+
+  (qr/text-to-qr-code-image (pr-str {:secret-key secret-key
+                                     :storage storage-details}))
   )
 
+(defn read-qr-code-image [file-name]
+  (qr/text-from-qr-code-image (image/file-to-buffered-image file-name)))
 
 (defn make-directories [path]
   (.mkdirs (io/file path)))
@@ -65,16 +84,21 @@
     (cryptography/spit-public-key secret-key-file
                                   (io/file path (str name ".public")))))
 
-(defn make-paper-keep [path name storage-details]
-  (let [secret-key (->> (cryptography/generate-secret-key name)
-                        (cryptography/encode))]
-    (image/buffered-image-to-png-file (qr/text-to-qr-code-image (pr-str {:secret-key secret-key
-                                                                         :storage storage-details}))
-                                      (io/file path (str name ".secret.png")))
-    (->> secret-key
-         (cryptography/public-key)
-         (cryptography/encode)
-         (spit (io/file path (str name ".public"))))))
+(defn make-paper-keep
+  ([name path storage-details]
+   (make-paper-keep name
+                    path
+                    storage-details
+                    (cryptography/generate-secret-key name)))
+  ([name path storage-details secret-key]
+   (make-directories path)
+   (image/buffered-image-to-png-file (qr/text-to-qr-code-image (pr-str {:secret-key (cryptography/encode secret-key)
+                                                                        :storage-details storage-details}))
+                                     (io/file path (str name ".secret.png")))
+   (->> secret-key
+        (cryptography/public-key)
+        (cryptography/encode)
+        (spit (io/file path (str name ".public"))))))
 
 (defn make-master-keep [path]
   (make-directories path)
@@ -107,17 +131,29 @@
             (cryptography/encrypt password))))
 
 (defn key-combination-file-name [master-file-path public-keys]
-  (str master-file-path "_" (apply str (interpose "-" (map cryptography/user-id public-keys)))))
+  (str master-file-path "_" (apply str (interpose "_" (map cryptography/user-id public-keys)))))
 
-(defn encrypt-with-key-combination [contents public-keys]
+(defn encrypt-with-key-combination [data public-keys]
   (reduce (fn [data public-key]
             (cryptography/encrypt data
                                   public-key))
-          contents
+          data
           public-keys))
 
 (defn load-key [path]
   (cryptography/decode (slurp path)))
+
+(defn load-paper-keep-key-from-text-file [path]
+  (-> (slurp path)
+      (read-string)
+      (:secret-key)
+      (cryptography/decode)))
+
+(defn load-paper-keep-key-from-image-file [path]
+  (-> (read-qr-code-image path)
+      (read-string)
+      (:secret-key)
+      (cryptography/decode)))
 
 (defn save-file-encrypted-with-key-combination [contents master-file-path public-keys]
   (spit (key-combination-file-name master-file-path public-keys)
@@ -198,16 +234,20 @@
                                                            password-hash-file-path
                                                            public-key-file-paths))
 
+(defn spit-file-encrypted-with-password [contents file-name store-path password-hash-file-path]
+  (when-let [password (ask-and-check-password password-hash-file-path)]
+    (save-file-with-password (store-file-path file-name store-path)
+                             contents
+                             password)))
+
+(defn spit-file-encrypted-with-key-combination [contents file-name store-path public-key-file-paths]
+  (save-file-encrypted-with-key-combination contents
+                                            (store-file-path file-name store-path)
+                                            (map load-key public-key-file-paths)))
 
 (defn spit-file-and-encrypt-with-password-and-key-combination [contents file-name store-path password-hash-file-path public-key-file-paths]
-  (when-let [password (ask-and-check-password password-hash-file-path)]
-    (let [store-file-path (store-file-path file-name store-path)]
-      (save-file-with-password store-file-path
-                               contents
-                               password)
-      (save-file-encrypted-with-key-combination contents
-                                                store-file-path
-                                                (map load-key public-key-file-paths)))))
+  (spit-file-encrypted-with-password contents file-name store-path password-hash-file-path)
+  (spit-file-encrypted-with-key-combination contents file-name store-path public-key-file-paths))
 
 (defn edit-file-with-password-and-keys [file-path pasword-hash-file-path public-key-file-names store-path]
   (when-let [password (ask-and-check-password pasword-hash-file-path)]
@@ -228,6 +268,10 @@
         (println "No changes made.")))))
 
 
+(defn show-with-password [encrypted-file-path hash-file-path]
+  (editor/edit (cryptography/decrypt (slurp encrypted-file-path)
+                                     (ask-and-check-password hash-file-path)))
+  nil)
 
 (defn sync-remote-directory [local-directory username host remote-directory]
   (shell/run-command "rsync" "-a" (str local-directory "/")  (str username "@" host ":" remote-directory)))
@@ -239,8 +283,8 @@
                    {:url "http://example.com"
                     :username "foo"
                     :password "bar"})
-  
-  
+
+
 
   (create-password-hash-file "temp/hash")
 

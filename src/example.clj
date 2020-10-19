@@ -10,8 +10,8 @@
 (comment
   (core/make-keep "example-keep" "temp/example-keep")
 
-  (core/make-paper-keep "temp/example-paper-keep"
-                        "example-paper-keep"
+  (core/make-paper-keep "example-paper-keep"
+                        "temp/example-paper-keep"
                         {:url "http://example.com"
                          :username "foo"
                          :password "bar"})
