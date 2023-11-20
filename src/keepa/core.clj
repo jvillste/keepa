@@ -71,9 +71,6 @@
                                      :storage storage-details}))
   )
 
-(defn read-qr-code-image [file-name]
-  (qr/text-from-qr-code-image (image/file-to-buffered-image file-name)))
-
 (defn make-directories [path]
   (.mkdirs (io/file path)))
 
@@ -150,7 +147,7 @@
       (cryptography/decode)))
 
 (defn load-paper-keep-key-from-image-file [path]
-  (-> (read-qr-code-image path)
+  (-> (qr/text-from-qr-code-image-file path)
       (read-string)
       (:secret-key)
       (cryptography/decode)))
