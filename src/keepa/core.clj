@@ -105,14 +105,18 @@
 (defn create-password-hash-file [file-name]
   (spit file-name (scrypt/encrypt (editor/ask-password))))
 
+(defn ask-password []
+  (println "Passowrd:")
+  (read-line))
+
 (defn ask-and-check-password [password-hash-file-name]
   ;; TODO:  do the checking by trying to open the previous version of the file with this password
-  (let [password (editor/ask-password)]
+  (let [password (ask-password) #_(editor/ask-password)]
     (if (scrypt/check password
                       (slurp password-hash-file-name))
       password
       (do (println "Invalid password")
-          nil))))
+          (throw (Exception. "Invalid password"))))))
 
 (defn load-master-file [file-name secret-key password]
   (if (.exists (io/file file-name))
