@@ -8,7 +8,9 @@
             [keepa.qr :as qr]
             [keepa.image :as image]
             [keepa.web-camera :as web-camera]
-            [keepa.printer :as printer])
+            [keepa.printer :as printer]
+            [clojure.math.combinatorics :as combinatorics]
+            [clojure.test :refer [deftest is]])
   (:import [java.awt.image BufferedImage]
            java.awt.Color))
 
@@ -336,3 +338,44 @@
                                 (map load-key ["temp/2/2.secret"
                                                "temp/1/1.secret"]))
   )
+
+(defn encrypt-with-encryption-key-combination [data encryption-keys]
+  (reduce (fn [data encryption-key]
+            (cryptography/encrypt data
+                                  (:key encryption-key)))
+          data
+          encryption-keys))
+
+(defn encrypt-with-all-key-combinations [encryption-keys contents]
+  (into {}
+        (for [encryption-key-combination (combinatorics/combinations encryption-keys
+                                                                     2)]
+          [(vec (map :name encryption-key-combination))
+           (encrypt-with-encryption-key-combination contents
+                                                    encryption-key-combination)])))
+
+(defn spit-encrypted [store-path secret-name encryption-keys contents]
+  (spit (str (path store-path secret-name)
+             "_"
+             (time/local-time-stamp-string))
+        (pr-str (encrypt-with-all-key-combinations encryption-keys
+                                                   contents))))
+
+(defn decrypt [private-keys encryptions]
+  (let [encryption-key-names-set (set (keys private-keys))]
+    (if-let [encryption-key-names (first (filter (fn [encryption-key-names]
+                                                   (every? encryption-key-names-set
+                                                           encryption-key-names))
+                                                 (keys encryptions)))]
+      (decrypt-with-key-combination (get encryptions encryption-key-names)
+                                    (reverse (map private-keys
+                                                  encryption-key-names)))
+      (throw (Exception. "no required keys given")))))
+
+(deftest test-decrypt
+  (is (= "baz"
+         (decrypt {"string-1" "foo"
+                   "string-2" "bar"}
+                  (encrypt-with-all-key-combinations [{:name "string-1" :key "foo"}
+                                                      {:name "string-2" :key "bar"}]
+                                                     "baz")))))
