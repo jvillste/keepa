@@ -2,7 +2,7 @@
   (:require [clj-pgp.core :as pgp]
             [clj-pgp.generate :as generate]
             [clojure.test :refer :all]
-            [clj-pgp.message #_keepa.message :as message])
+            [clj-pgp.message :as message])
   (:import [org.bouncycastle.openpgp PGPSecretKey PGPSecretKeyRing]))
 
 (extend-protocol pgp/Encodable
