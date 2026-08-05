@@ -13,3 +13,5 @@ pom.xml.asc
 /.DS_Store
 .DS_Store
 /local
+/.clj-kondo/
+/.lsp/
